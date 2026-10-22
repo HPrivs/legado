@@ -815,7 +815,7 @@
     <string name="rule_sub_empty_msg">新增大佬們提供的規則匯入地址\n新增後點擊可匯入規則</string>
     <string name="get_book_progress">拉取雲端進度</string>
     <string name="cover_book_progress">覆蓋雲端進度</string>
-    <string name="current_progress_exceeds_cloud">目前進度超過雲端進度，是否同步？</string>
+    <string name="current_progress_exceeds_cloud">本地進度較新，仍要用較舊的雲端位置覆蓋嗎？</string>
     <string name="sync_book_progress_t">同步閱讀進度</string>
     <string name="sync_book_progress_s">進入退出閱讀介面時同步閱讀進度</string>
     <string name="sync_book_progress_plus_t">同步增強</string>
@@ -1147,7 +1147,7 @@
     <string name="default_home_page">默认主页</string>
     <string name="show_bookshelf_fast_scroller">显示快速滚动条</string>
     <string name="export_all_use_book_source">导出所有书的书源</string>
-    <string name="cloud_progress_exceeds_current">雲端進度超過目前進度，是否同步？</string>
+    <string name="cloud_progress_exceeds_current">雲端進度來自更新的設備，是否同步到該設備的目前位置？</string>
     <string name="keep_enable">保留启用状态</string>
     <string name="preview_image_by_click">点击预览图片</string>
     <string name="screen_portrait_reversed">反向竖屏</string>

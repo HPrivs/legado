@@ -3,6 +3,8 @@ package io.legado.app.ui.book.read.page
 import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.drawable.LayerDrawable
+import android.text.Spannable
+import android.text.SpannableStringBuilder
 import android.view.LayoutInflater
 import android.widget.FrameLayout
 import androidx.core.content.ContextCompat
@@ -35,6 +37,12 @@ import io.legado.app.utils.setTextIfNotEqual
 import splitties.views.backgroundColor
 import java.util.Date
 
+enum class AiPurifyDisplayState {
+    ORIGINAL,
+    RUNNING,
+    PURIFIED
+}
+
 /**
  * 页面视图
  */
@@ -54,6 +62,12 @@ class PageView(context: Context) : FrameLayout(context) {
     private var tvBookName: BatteryView? = null
     private var tvTimeBattery: BatteryView? = null
     private var tvTimeBatteryP: BatteryView? = null
+    private var chapterIndex = -1
+    private var aiPurifyStatusTarget: BatteryView? = null
+    private var aiPurifyStatusSpan: AiPurifyStatusSpan? = null
+    private var aiPurifyDisplayState: AiPurifyDisplayState? = null
+    private var pageText = ""
+    private var pageAndTotalText = ""
     private var isMainView = false
     var isScroll = false
 
@@ -123,6 +137,7 @@ class PageView(context: Context) : FrameLayout(context) {
         }
         upTime()
         upBattery(battery)
+        upAiPurifyStatus(force = true)
     }
 
     /**
@@ -163,6 +178,7 @@ class PageView(context: Context) : FrameLayout(context) {
      * 更新阅读信息
      */
     private fun upTipStyle() = binding.run {
+        clearAiPurifyStatus()
         tvHeaderLeft.tag = null
         tvHeaderMiddle.tag = null
         tvHeaderRight.tag = null
@@ -359,20 +375,78 @@ class PageView(context: Context) : FrameLayout(context) {
      */
     @SuppressLint("SetTextI18n")
     fun setProgress(textPage: TextPage) = textPage.apply {
+        this@PageView.chapterIndex = textPage.chapterIndex
         tvBookName?.setTextIfNotEqual(ReadBook.book?.name)
         tvTitle?.setTextIfNotEqual(textPage.title)
         val readProgress = readProgress
         tvTotalProgress?.setTextIfNotEqual(readProgress)
         tvTotalProgress1?.setTextIfNotEqual("${chapterIndex.plus(1)}/${chapterSize}")
         if (textChapter.isCompleted) {
-            tvPageAndTotal?.setTextIfNotEqual("${index.plus(1)}/$pageSize  $readProgress")
-            tvPage?.setTextIfNotEqual("${index.plus(1)}/$pageSize")
+            pageAndTotalText = "${index.plus(1)}/$pageSize  $readProgress"
+            pageText = "${index.plus(1)}/$pageSize"
         } else {
             val pageSizeInt = pageSize
             val pageSize = if (pageSizeInt <= 0) "-" else "~$pageSizeInt"
-            tvPageAndTotal?.setTextIfNotEqual("${index.plus(1)}/$pageSize  $readProgress")
-            tvPage?.setTextIfNotEqual("${index.plus(1)}/$pageSize")
+            pageAndTotalText = "${index.plus(1)}/$pageSize  $readProgress"
+            pageText = "${index.plus(1)}/$pageSize"
         }
+        upAiPurifyStatus(force = true)
+    }
+
+    fun upAiPurifyStatus(force: Boolean = false) {
+        val target = binding.run {
+            listOf(tvFooterLeft, tvFooterMiddle, tvFooterRight).firstOrNull {
+                it.tag == ReadTipConfig.page || it.tag == ReadTipConfig.pageAndTotal
+            }
+        } ?: tvPage ?: tvPageAndTotal
+        val state = readBookActivity?.getAiPurifyDisplayState(chapterIndex)
+            ?: AiPurifyDisplayState.ORIGINAL
+        if (!force && target === aiPurifyStatusTarget && state == aiPurifyDisplayState) return
+
+        clearAiPurifyStatus()
+        aiPurifyStatusTarget = target
+        aiPurifyDisplayState = state
+        target ?: return
+        val baseText = getPageBaseText(target)
+        val content = SpannableStringBuilder(baseText)
+            .append("  ")
+            .append(INLINE_STATUS_PLACEHOLDER)
+        val span = AiPurifyStatusSpan(context, target, state)
+        content.setSpan(
+            span,
+            content.length - 1,
+            content.length,
+            Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
+        )
+        aiPurifyStatusSpan = span
+        target.text = content
+        span.start()
+    }
+
+    private fun clearAiPurifyStatus() {
+        aiPurifyStatusSpan?.stop()
+        aiPurifyStatusTarget?.let { it.text = getPageBaseText(it) }
+        aiPurifyStatusSpan = null
+        aiPurifyStatusTarget = null
+        aiPurifyDisplayState = null
+    }
+
+    private fun getPageBaseText(target: BatteryView): String {
+        return if (target === tvPageAndTotal) pageAndTotalText else pageText
+    }
+
+    override fun onDetachedFromWindow() {
+        aiPurifyStatusSpan?.stop()
+        super.onDetachedFromWindow()
+    }
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        aiPurifyStatusSpan?.start()
+    }
+
+    companion object {
+        private const val INLINE_STATUS_PLACEHOLDER = "\uFFFC"
     }
 
     fun setAutoPager(autoPager: AutoPager?) {

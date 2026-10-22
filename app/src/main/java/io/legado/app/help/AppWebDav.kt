@@ -7,6 +7,8 @@ import io.legado.app.constant.PreferKey
 import io.legado.app.data.appDb
 import io.legado.app.data.entities.Book
 import io.legado.app.data.entities.BookProgress
+import io.legado.app.data.entities.BookProgressSync
+import io.legado.app.data.entities.BookProgressSyncDecision
 import io.legado.app.exception.NoStackTraceException
 import io.legado.app.help.config.AppConfig
 import io.legado.app.help.storage.Backup
@@ -314,22 +316,42 @@ object AppWebDav {
         appDb.bookDao.all.forEach { book ->
             val progressFileName = getProgressFileName(book.name, book.author)
             val webDavFile = map[progressFileName]
-            webDavFile ?: return
+            webDavFile ?: return@forEach
             if (webDavFile.lastModify <= book.syncTime) {
                 //本地同步时间大于上传时间不用同步
-                return
+                return@forEach
             }
             getBookProgress(book)?.let { bookProgress ->
-                if (bookProgress.durChapterIndex > book.durChapterIndex
-                    || (bookProgress.durChapterIndex == book.durChapterIndex
-                            && bookProgress.durChapterPos > book.durChapterPos)
-                ) {
-                    book.durChapterIndex = bookProgress.durChapterIndex
-                    book.durChapterPos = bookProgress.durChapterPos
-                    book.durChapterTitle = bookProgress.durChapterTitle
-                    book.durChapterTime = bookProgress.durChapterTime
-                    book.syncTime = System.currentTimeMillis()
-                    appDb.bookDao.update(book)
+                when (BookProgressSync.decide(BookProgress(book), bookProgress)) {
+                    BookProgressSyncDecision.KEEP_LOCAL -> {
+                        // 云端被旧设备覆盖时，恢复最后阅读设备的当前位置。
+                        uploadBookProgress(book)
+                        appDb.bookDao.update(book)
+                    }
+
+                    BookProgressSyncDecision.USE_REMOTE -> {
+                        book.durChapterIndex = bookProgress.durChapterIndex
+                        book.durChapterPos = bookProgress.durChapterPos
+                        book.durChapterTitle = bookProgress.durChapterTitle
+                        book.durChapterTime = bookProgress.durChapterTime
+                        book.syncTime = System.currentTimeMillis()
+                        appDb.bookDao.update(book)
+                    }
+
+                    BookProgressSyncDecision.ALREADY_SYNCED -> {
+                        when {
+                            bookProgress.durChapterTime > book.durChapterTime -> {
+                                book.durChapterTime = bookProgress.durChapterTime
+                                book.durChapterTitle = bookProgress.durChapterTitle
+                            }
+
+                            bookProgress.durChapterTime < book.durChapterTime -> {
+                                uploadBookProgress(book)
+                            }
+                        }
+                        book.syncTime = System.currentTimeMillis()
+                        appDb.bookDao.update(book)
+                    }
                 }
             }
         }

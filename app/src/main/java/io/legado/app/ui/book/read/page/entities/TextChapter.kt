@@ -27,8 +27,13 @@ data class TextChapter(
     val isVip: Boolean,
     val isPay: Boolean,
     //起效的替换规则
-    val effectiveReplaceRules: List<ReplaceRule>?
+    val effectiveReplaceRules: List<ReplaceRule>?,
+    val aiPurifyCacheKey: String? = null,
+    val isAiStreaming: Boolean = false
 ) : LayoutProgressListener {
+
+    val isAiPurified: Boolean
+        get() = aiPurifyCacheKey != null
 
     private val textPages = arrayListOf<TextPage>()
     val pages: List<TextPage> get() = textPages
@@ -99,7 +104,7 @@ data class TextChapter(
      * @return 是否是最后一页
      */
     fun isLastIndex(index: Int): Boolean {
-        return isCompleted && index >= pages.size - 1
+        return !isAiStreaming && isCompleted && index >= pages.size - 1
     }
 
     fun isLastIndexCurrent(index: Int): Boolean {

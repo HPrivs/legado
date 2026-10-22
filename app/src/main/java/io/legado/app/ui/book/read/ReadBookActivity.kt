@@ -84,6 +84,7 @@ import io.legado.app.ui.book.read.config.ReadStyleDialog
 import io.legado.app.ui.book.read.config.TipConfigDialog.Companion.TIP_COLOR
 import io.legado.app.ui.book.read.config.TipConfigDialog.Companion.TIP_DIVIDER_COLOR
 import io.legado.app.ui.book.read.page.ContentTextView
+import io.legado.app.ui.book.read.page.AiPurifyDisplayState
 import io.legado.app.ui.book.read.page.ReadView
 import io.legado.app.ui.book.read.page.delegate.ScrollPageDelegate
 import io.legado.app.ui.book.read.page.entities.PageDirection
@@ -248,6 +249,7 @@ class ReadBookActivity : BaseReadBookActivity(),
     private val prevPageDebounce by lazy { Debounce { keyPage(PageDirection.PREV) } }
     private var bookChanged = false
     private var pageChanged = false
+    private var lastAiPurifyChapterIndex = -1
     private val handler by lazy { buildMainHandler() }
     private val screenOffRunnable by lazy { Runnable { keepScreenOn(false) } }
     private val executor = ReadBook.executor
@@ -276,6 +278,11 @@ class ReadBookActivity : BaseReadBookActivity(),
         window.setBackgroundDrawable(null)
         upScreenTimeOut()
         ReadBook.register(this)
+        viewModel.aiPurifyState.observe(this) {
+            upMenu()
+            binding.readView.upAiPurifyStatus()
+            binding.readMenu.upPurifyAction()
+        }
         onBackPressedDispatcher.addCallback(this) {
             if (isShowingSearchResult) {
                 exitSearchMenu()
@@ -374,17 +381,18 @@ class ReadBookActivity : BaseReadBookActivity(),
         super.onPause()
         autoPageStop()
         backupJob?.cancel()
-        ReadBook.saveRead()
+        ReadBook.saveRead {
+            if (!BuildConfig.DEBUG && ReadBook.inBookshelf) {
+                if (AppConfig.syncBookProgressPlus) {
+                    ReadBook.syncProgress()
+                } else {
+                    ReadBook.uploadProgress()
+                }
+            }
+        }
         ReadBook.cancelPreDownloadTask()
         unregisterReceiver(timeBatteryReceiver)
         upSystemUiVisibility()
-        if (!BuildConfig.DEBUG && ReadBook.inBookshelf) {
-            if (AppConfig.syncBookProgressPlus) {
-                ReadBook.syncProgress()
-            } else {
-                ReadBook.uploadProgress()
-            }
-        }
         if (!BuildConfig.DEBUG) {
             Backup.autoBack(this)
         }
@@ -439,7 +447,18 @@ class ReadBookActivity : BaseReadBookActivity(),
                 R.id.menu_group_text -> item.isVisible = book.isLocalTxt
                 R.id.menu_group_epub -> item.isVisible = book.isEpub
                 else -> when (item.itemId) {
-                    R.id.menu_enable_replace -> item.isChecked = book.getUseReplaceRule()
+                    R.id.menu_enable_replace -> {
+                        item.isChecked = book.getUseReplaceRule()
+                        item.isEnabled = !book.getUseAiPurify()
+                    }
+                    R.id.menu_ai_purify -> {
+                        item.isChecked = book.getUseAiPurify()
+                        item.setTitle(R.string.ai_purify)
+                    }
+                    R.id.menu_ai_repurify -> {
+                        item.isVisible = book.getUseAiPurify()
+                        item.isEnabled = true
+                    }
                     R.id.menu_re_segment -> item.isChecked = book.getReSegment()
 //                    R.id.menu_enable_review -> {
 //                        item.isVisible = BuildConfig.DEBUG
@@ -536,6 +555,8 @@ class ReadBookActivity : BaseReadBookActivity(),
             }
 
             R.id.menu_enable_replace -> changeReplaceRuleState()
+            R.id.menu_ai_purify -> changeAiPurifyState()
+            R.id.menu_ai_repurify -> viewModel.repurifyCurrentChapter()
             R.id.menu_re_segment -> ReadBook.book?.let {
                 it.setReSegment(!it.getReSegment())
                 item.isChecked = it.getReSegment()
@@ -1011,6 +1032,15 @@ class ReadBookActivity : BaseReadBookActivity(),
             ReadBook.readAloud()
         }
         loadStates = true
+        handler.post {
+            viewModel.ensureCurrentChapterPurified()
+        }
+    }
+
+    override fun onChapterOriginalContentReady(bookUrl: String, chapterIndex: Int) {
+        handler.post {
+            viewModel.onChapterOriginalContentReady(bookUrl, chapterIndex)
+        }
     }
 
     /**
@@ -1067,6 +1097,12 @@ class ReadBookActivity : BaseReadBookActivity(),
      */
     override fun pageChanged() {
         pageChanged = true
+        if (lastAiPurifyChapterIndex != ReadBook.durChapterIndex) {
+            lastAiPurifyChapterIndex = ReadBook.durChapterIndex
+            handler.post {
+                viewModel.ensureCurrentChapterPurified()
+            }
+        }
         binding.readView.onPageChange()
         handler.post {
             upSeekBarProgress()
@@ -1657,10 +1693,57 @@ class ReadBookActivity : BaseReadBookActivity(),
 
     override fun changeReplaceRuleState() {
         ReadBook.book?.let {
+            if (it.getUseAiPurify()) {
+                toastOnUi(R.string.ai_purify_replace_disabled)
+                return
+            }
             it.setUseReplaceRule(!it.getUseReplaceRule())
             ReadBook.saveRead()
             menu?.findItem(R.id.menu_enable_replace)?.isChecked = it.getUseReplaceRule()
             viewModel.replaceRuleChanged()
+        }
+    }
+
+    private fun changeAiPurifyState() {
+        ReadBook.book?.let { book ->
+            val enabled = !book.getUseAiPurify()
+            book.setUseAiPurify(enabled)
+            ReadBook.saveRead()
+            menu?.findItem(R.id.menu_ai_purify)?.isChecked = enabled
+            menu?.findItem(R.id.menu_enable_replace)?.apply {
+                isChecked = book.getUseReplaceRule()
+                isEnabled = !enabled
+            }
+            viewModel.aiPurifyChanged()
+        }
+    }
+
+    override fun isAiPurifying(): Boolean {
+        val book = ReadBook.book ?: return false
+        val state = viewModel.aiPurifyState.value
+        return state is ReadBookViewModel.AiPurifyState.Running &&
+            state.bookUrl == book.bookUrl &&
+            state.chapterIndex == ReadBook.durChapterIndex
+    }
+
+    override fun repurifyCurrentChapter() {
+        viewModel.repurifyCurrentChapter()
+    }
+
+    fun getAiPurifyDisplayState(chapterIndex: Int): AiPurifyDisplayState {
+        val book = ReadBook.book ?: return AiPurifyDisplayState.ORIGINAL
+        if (!book.getUseAiPurify()) return AiPurifyDisplayState.ORIGINAL
+        val state = viewModel.aiPurifyState.value
+        if (state is ReadBookViewModel.AiPurifyState.Running &&
+            state.bookUrl == book.bookUrl &&
+            state.chapterIndex == chapterIndex
+        ) {
+            return AiPurifyDisplayState.RUNNING
+        }
+        return if (ReadBook.textChapterForIndex(chapterIndex)?.isAiPurified == true) {
+            AiPurifyDisplayState.PURIFIED
+        } else {
+            AiPurifyDisplayState.ORIGINAL
         }
     }
 

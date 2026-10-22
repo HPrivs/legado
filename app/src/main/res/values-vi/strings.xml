@@ -815,8 +815,8 @@
     <string name="rule_sub_empty_msg">Thêm địa chỉ nhập quy tắc do các quản trị viên cung cấp\nNhấn để nhập quy tắc sau khi thêm</string>
     <string name="get_book_progress">Kéo tiến độ từ đám mây</string>
     <string name="cover_book_progress">Ghi đè tiến độ trên đám mây</string>
-    <string name="current_progress_exceeds_cloud">Tiến độ hiện tại vượt quá tiến độ trên đám mây. Bạn có muốn đồng bộ không?</string>
-    <string name="cloud_progress_exceeds_current">Tiến độ trên đám mây vượt quá tiến độ hiện tại. Bạn có muốn đồng bộ không?</string>
+    <string name="current_progress_exceeds_cloud">Tiến độ cục bộ mới hơn. Vẫn thay thế bằng vị trí đám mây cũ hơn?</string>
+    <string name="cloud_progress_exceeds_current">Tiến độ đám mây được cập nhật gần đây hơn. Đồng bộ đến vị trí hiện tại của thiết bị đó?</string>
     <string name="sync_book_progress_t">Đồng bộ tiến độ đọc</string>
     <string name="sync_book_progress_s">Đồng bộ tiến độ đọc khi vào/ra giao diện đọc</string>
     <string name="sync_book_progress_plus_t">Tăng cường đồng bộ</string>

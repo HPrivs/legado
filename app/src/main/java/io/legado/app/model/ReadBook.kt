@@ -7,9 +7,13 @@ import io.legado.app.data.appDb
 import io.legado.app.data.entities.Book
 import io.legado.app.data.entities.BookChapter
 import io.legado.app.data.entities.BookProgress
+import io.legado.app.data.entities.BookProgressSync
+import io.legado.app.data.entities.BookProgressSyncDecision
 import io.legado.app.data.entities.BookSource
 import io.legado.app.data.entities.ReadRecord
 import io.legado.app.help.AppWebDav
+import io.legado.app.help.ai.AiPurifiedContentStore
+import io.legado.app.help.ai.AiPurificationDiagnostics
 import io.legado.app.help.book.BookHelp
 import io.legado.app.help.book.ContentProcessor
 import io.legado.app.help.book.isImage
@@ -24,6 +28,7 @@ import io.legado.app.help.config.ReadBookConfig
 import io.legado.app.help.coroutine.Coroutine
 import io.legado.app.help.globalExecutor
 import io.legado.app.model.localBook.TextFile
+import io.legado.app.model.ai.purify.NovelPurificationRuntimeConfigProvider
 import io.legado.app.model.webBook.WebBook
 import io.legado.app.service.BaseReadAloudService
 import io.legado.app.service.CacheBookService
@@ -53,12 +58,42 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import splitties.init.appCtx
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.max
 import kotlin.math.min
 
 
 @Suppress("MemberVisibilityCanBePrivate")
 object ReadBook : CoroutineScope by MainScope() {
+    private const val AI_STREAMING_EMPTY_CONTENT = "\u200B"
+
+    private data class AiDisplayContent(
+        val text: String,
+        val cacheKey: String? = null,
+        val isStreaming: Boolean = false,
+        val streamingContentChars: Int = 0,
+        val streamingTrace: AiStreamingTrace? = null
+    )
+
+    private data class AiStreamingTrace(
+        val traceId: String,
+        val requestStartedAtMillis: Long,
+        val blankLayoutLogged: AtomicBoolean = AtomicBoolean(),
+        val contentLayoutLogged: AtomicBoolean = AtomicBoolean()
+    )
+
+    private data class AiStreamingKey(
+        val bookUrl: String,
+        val chapterIndex: Int
+    )
+
+    private data class AiStreamingContent(
+        val cacheKey: String,
+        val text: String,
+        val restoreChapterPos: Int?,
+        val trace: AiStreamingTrace
+    )
+
     var book: Book? = null
     var callBack: CallBack? = null
     var inBookshelf = false
@@ -94,9 +129,11 @@ object ReadBook : CoroutineScope by MainScope() {
     val downloadScope = CoroutineScope(SupervisorJob() + IO)
     val preDownloadSemaphore = Semaphore(2)
     val executor = globalExecutor
+    private val aiStreamingContents = ConcurrentHashMap<AiStreamingKey, AiStreamingContent>()
 
     fun resetData(book: Book) {
         releaseAndCancel()
+        clearAllAiStreamingContent()
         ReadBook.book = book
         readRecord.bookName = book.name
         readRecord.readTime = appDb.readRecordDao.getReadTime(book.name) ?: 0
@@ -247,8 +284,7 @@ object ReadBook : CoroutineScope by MainScope() {
     }
 
     /**
-     * 同步阅读进度
-     * 如果当前进度快于服务器进度或者没有进度进行上传，如果慢与服务器进度则执行传入动作
+     * 同步阅读进度，以最后阅读时间判断本地和云端哪个更新。
      */
     fun syncProgress(
         newProgressAction: ((progress: BookProgress) -> Unit)? = null,
@@ -262,22 +298,34 @@ object ReadBook : CoroutineScope by MainScope() {
         }.onError {
             AppLog.put("拉取阅读进度失败", it)
         }.onSuccess { progress ->
-            if (progress == null || progress.durChapterIndex < book.durChapterIndex ||
-                (progress.durChapterIndex == book.durChapterIndex
-                        && progress.durChapterPos < book.durChapterPos)
-            ) {
-                // 服务器没有进度或者进度比服务器快，上传现有进度
-                Coroutine.async {
-                    AppWebDav.uploadBookProgress(BookProgress(book), uploadSuccessAction)
+            when (BookProgressSync.decide(BookProgress(book), progress)) {
+                BookProgressSyncDecision.KEEP_LOCAL -> Coroutine.async {
+                    AppWebDav.uploadBookProgress(book, onSuccess = uploadSuccessAction)
                     book.update()
                 }
-            } else if (progress.durChapterIndex > book.durChapterIndex ||
-                progress.durChapterPos > book.durChapterPos
-            ) {
-                // 进度比服务器慢，执行传入动作
-                newProgressAction?.invoke(progress)
-            } else {
-                syncSuccessAction?.invoke()
+
+                BookProgressSyncDecision.USE_REMOTE -> {
+                    if (progress != null) newProgressAction?.invoke(progress)
+                }
+                BookProgressSyncDecision.ALREADY_SYNCED -> {
+                    progress?.let { matchingProgress ->
+                        Coroutine.async {
+                            when {
+                                matchingProgress.durChapterTime > book.durChapterTime -> {
+                                    book.durChapterTime = matchingProgress.durChapterTime
+                                    book.durChapterTitle = matchingProgress.durChapterTitle
+                                    book.update()
+                                }
+
+                                matchingProgress.durChapterTime < book.durChapterTime -> {
+                                    AppWebDav.uploadBookProgress(book)
+                                    book.update()
+                                }
+                            }
+                        }
+                    }
+                    syncSuccessAction?.invoke()
+                }
             }
         }
     }
@@ -526,6 +574,93 @@ object ReadBook : CoroutineScope by MainScope() {
         }
     }
 
+    fun textChapterForIndex(chapterIndex: Int): TextChapter? {
+        return sequenceOf(prevTextChapter, curTextChapter, nextTextChapter)
+            .filterNotNull()
+            .firstOrNull { it.chapter.index == chapterIndex }
+    }
+
+    fun reloadAiContent(chapterIndex: Int, resetPageOffset: Boolean = false) {
+        val book = book ?: return
+        if (!book.getUseAiPurify()) return
+        if (chapterIndex !in durChapterIndex - 1..durChapterIndex + 1) return
+        chapterLoadingJobs.remove(chapterIndex)?.cancel()
+        removeLoading(chapterIndex)
+        loadContent(
+            chapterIndex,
+            upContent = chapterIndex == durChapterIndex,
+            resetPageOffset = resetPageOffset
+        )
+    }
+
+    /** Replaces the current chapter with a blank streaming page before the first AI line arrives. */
+    fun beginAiStreamingContent(
+        bookUrl: String,
+        chapterIndex: Int,
+        cacheKey: String,
+        traceId: String,
+        requestStartedAtMillis: Long
+    ): Boolean {
+        val streamingKey = AiStreamingKey(bookUrl, chapterIndex)
+        val isCurrent = book?.bookUrl == bookUrl && durChapterIndex == chapterIndex
+        val restoreChapterPos = aiStreamingContents[streamingKey]?.restoreChapterPos
+            ?: durChapterPos.takeIf { isCurrent }
+        aiStreamingContents[streamingKey] = AiStreamingContent(
+            cacheKey = cacheKey,
+            text = "",
+            restoreChapterPos = restoreChapterPos,
+            trace = AiStreamingTrace(traceId, requestStartedAtMillis)
+        )
+        if (isCurrent) durChapterPos = 0
+        return isCurrent
+    }
+
+    fun updateAiStreamingContent(
+        bookUrl: String,
+        chapterIndex: Int,
+        cacheKey: String,
+        content: String,
+        traceId: String,
+        requestStartedAtMillis: Long
+    ): Boolean {
+        if (content.isBlank()) return false
+        val streamingKey = AiStreamingKey(bookUrl, chapterIndex)
+        val current = aiStreamingContents[streamingKey]
+        val trace = current?.trace?.takeIf { it.traceId == traceId }
+            ?: AiStreamingTrace(traceId, requestStartedAtMillis)
+        aiStreamingContents[streamingKey] = AiStreamingContent(
+            cacheKey = cacheKey,
+            text = content,
+            restoreChapterPos = current?.restoreChapterPos,
+            trace = trace
+        )
+        return book?.bookUrl == bookUrl &&
+                durChapterIndex == chapterIndex
+    }
+
+    fun clearAiStreamingContent(
+        bookUrl: String,
+        chapterIndex: Int,
+        restorePosition: Boolean = false
+    ): Boolean {
+        val removed = aiStreamingContents.remove(AiStreamingKey(bookUrl, chapterIndex))
+            ?: return false
+        if (restorePosition && book?.bookUrl == bookUrl && durChapterIndex == chapterIndex) {
+            removed.restoreChapterPos?.let { durChapterPos = it }
+        }
+        return true
+    }
+
+    fun clearAllAiStreamingContent(restorePosition: Boolean = false) {
+        if (restorePosition) {
+            val currentBookUrl = book?.bookUrl
+            aiStreamingContents[AiStreamingKey(currentBookUrl.orEmpty(), durChapterIndex)]
+                ?.restoreChapterPos
+                ?.let { durChapterPos = it }
+        }
+        aiStreamingContents.clear()
+    }
+
     /**
      * 加载当前章节和前后一章内容
      * @param resetPageOffset 滚动阅读是否重置滚动位置
@@ -703,19 +838,28 @@ object ReadBook : CoroutineScope by MainScope() {
         if (canceled || chapter.index !in durChapterIndex - 1..durChapterIndex + 1) {
             return
         }
+        callBack?.onChapterOriginalContentReady(book.bookUrl, chapter.index)
         chapterLoadingJobs[chapter.index]?.cancel()
         val job = Coroutine.async(this, start = CoroutineStart.LAZY) {
             val contentProcessor = ContentProcessor.get(book.name, book.origin)
+            val displayContent = getAiPurifiedContentOrOriginal(book, chapter, content)
             val displayTitle = chapter.getDisplayTitle(
                 contentProcessor.getTitleReplaceRules(),
                 book.getUseReplaceRule(),
                 replaceBook = book.toReplaceBook()
             )
             val contents = contentProcessor
-                .getContent(book, chapter, content, includeTitle = false)
+                .getContent(book, chapter, displayContent.text, includeTitle = false)
             ensureActive()
             val textChapter = ChapterProvider.getTextChapterAsync(
-                this, book, chapter, displayTitle, contents, simulatedChapterSize
+                this,
+                book,
+                chapter,
+                displayTitle,
+                contents,
+                simulatedChapterSize,
+                displayContent.cacheKey,
+                displayContent.isStreaming
             )
             when (val offset = chapter.index - durChapterIndex) {
                 0 -> curChapterLoadingLock.withLock {
@@ -726,6 +870,7 @@ object ReadBook : CoroutineScope by MainScope() {
                     callBack?.upMenuView()
                     var available = false
                     for (page in textChapter.layoutChannel) {
+                        logFirstAiStreamingLayout(displayContent, chapter.index)
                         val index = page.index
                         if (!available && page.containPos(durChapterPos)) {
                             if (upContent) {
@@ -793,17 +938,26 @@ object ReadBook : CoroutineScope by MainScope() {
         if (chapter.index !in durChapterIndex - 1..durChapterIndex + 1) {
             return
         }
+        callBack?.onChapterOriginalContentReady(book.bookUrl, chapter.index)
         kotlin.runCatching {
             val contentProcessor = ContentProcessor.get(book.name, book.origin)
+            val displayContent = getAiPurifiedContentOrOriginal(book, chapter, content)
             val displayTitle = chapter.getDisplayTitle(
                 contentProcessor.getTitleReplaceRules(),
                 book.getUseReplaceRule(),
                 replaceBook = book.toReplaceBook()
             )
             val contents = contentProcessor
-                .getContent(book, chapter, content, includeTitle = false)
+                .getContent(book, chapter, displayContent.text, includeTitle = false)
             val textChapter = ChapterProvider.getTextChapterAsync(
-                this@ReadBook, book, chapter, displayTitle, contents, simulatedChapterSize
+                this@ReadBook,
+                book,
+                chapter,
+                displayTitle,
+                contents,
+                simulatedChapterSize,
+                displayContent.cacheKey,
+                displayContent.isStreaming
             )
             when (val offset = chapter.index - durChapterIndex) {
                 0 -> {
@@ -814,6 +968,7 @@ object ReadBook : CoroutineScope by MainScope() {
                     callBack?.upMenuView()
                     var available = false
                     for (page in textChapter.layoutChannel) {
+                        logFirstAiStreamingLayout(displayContent, chapter.index)
                         val index = page.index
                         if (!available && page.containPos(durChapterPos)) {
                             if (upContent) {
@@ -864,6 +1019,48 @@ object ReadBook : CoroutineScope by MainScope() {
         }
     }
 
+    private fun getAiPurifiedContentOrOriginal(
+        book: Book,
+        chapter: BookChapter,
+        originalContent: String
+    ): AiDisplayContent {
+        if (!book.getUseAiPurify()) {
+            return AiDisplayContent(originalContent)
+        }
+        return runCatching {
+            val config = NovelPurificationRuntimeConfigProvider.current(appCtx)
+            val store = AiPurifiedContentStore.get(appCtx)
+            val key = store.keyFor(book, chapter, originalContent, config)
+            aiStreamingContents[AiStreamingKey(book.bookUrl, chapter.index)]
+                ?.takeIf { it.cacheKey == key.value }
+                ?.let {
+                    return AiDisplayContent(
+                        text = it.text.ifEmpty { AI_STREAMING_EMPTY_CONTENT },
+                        isStreaming = true,
+                        streamingContentChars = it.text.length,
+                        streamingTrace = it.trace
+                    )
+                }
+            store.read(key)?.let { return AiDisplayContent(it, key.value) }
+        }.getOrNull() ?: AiDisplayContent(originalContent)
+    }
+
+    private fun logFirstAiStreamingLayout(
+        displayContent: AiDisplayContent,
+        chapterIndex: Int
+    ) {
+        val trace = displayContent.streamingTrace ?: return
+        val hasContent = displayContent.streamingContentChars > 0
+        val marker = if (hasContent) trace.contentLayoutLogged else trace.blankLayoutLogged
+        if (!marker.compareAndSet(false, true)) return
+        AiPurificationDiagnostics.log(
+            traceId = trace.traceId,
+            stage = if (hasContent) "first_content_page_laid_out" else "blank_page_laid_out",
+            startedAtMillis = trace.requestStartedAtMillis,
+            details = "chapterIndex=$chapterIndex streamChars=${displayContent.streamingContentChars}"
+        )
+    }
+
     /**
      * 预下载时，章节已完，更新目录
      */
@@ -905,7 +1102,7 @@ object ReadBook : CoroutineScope by MainScope() {
         saveRead()
     }
 
-    fun saveRead(pageChanged: Boolean = false) {
+    fun saveRead(pageChanged: Boolean = false, onSaved: (() -> Unit)? = null) {
         val book = book ?: return
         executor.execute {
             kotlin.runCatching {
@@ -913,8 +1110,11 @@ object ReadBook : CoroutineScope by MainScope() {
                 val durTime = System.currentTimeMillis()
                 book.durChapterTime = durTime
                 val chapterChanged = book.durChapterIndex != durChapterIndex
+                val savedChapterPos = aiStreamingContents[
+                    AiStreamingKey(book.bookUrl, durChapterIndex)
+                ]?.restoreChapterPos ?: durChapterPos
                 book.durChapterIndex = durChapterIndex
-                book.durChapterPos = durChapterPos
+                book.durChapterPos = savedChapterPos
                 if (!pageChanged || chapterChanged) {
                     appDb.bookChapterDao.getChapter(book.bookUrl, durChapterIndex)?.let {
                         book.durChapterTitle = it.getDisplayTitle(
@@ -929,6 +1129,7 @@ object ReadBook : CoroutineScope by MainScope() {
             }.onFailure {
                 AppLog.put("保存书籍阅读进度信息出错\n$it", it)
             }
+            onSaved?.invoke()
         }
     }
 
@@ -1051,6 +1252,8 @@ object ReadBook : CoroutineScope by MainScope() {
         fun pageChanged()
 
         fun contentLoadFinish()
+
+        fun onChapterOriginalContentReady(bookUrl: String, chapterIndex: Int) = Unit
 
         fun upPageAnim(upRecorder: Boolean = false)
 

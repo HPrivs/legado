@@ -153,6 +153,8 @@ object ChapterProvider {
         displayTitle: String,
         bookContent: BookContent,
         chapterSize: Int,
+        aiPurifyCacheKey: String? = null,
+        isAiStreaming: Boolean = false,
     ): TextChapter {
 
         val textChapter = TextChapter(
@@ -162,7 +164,9 @@ object ChapterProvider {
             bookContent.sameTitleRemoved,
             bookChapter.isVip,
             bookChapter.isPay,
-            bookContent.effectiveReplaceRules
+            bookContent.effectiveReplaceRules,
+            aiPurifyCacheKey,
+            isAiStreaming
         ).apply {
             createLayout(scope, book, bookContent)
         }

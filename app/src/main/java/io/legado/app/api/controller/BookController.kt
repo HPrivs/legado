@@ -8,6 +8,8 @@ import io.legado.app.api.ReturnData
 import io.legado.app.data.appDb
 import io.legado.app.data.entities.Book
 import io.legado.app.data.entities.BookProgress
+import io.legado.app.data.entities.BookProgressSync
+import io.legado.app.data.entities.BookProgressSyncDecision
 import io.legado.app.data.entities.BookSource
 import io.legado.app.help.AppWebDav
 import io.legado.app.help.CacheManager
@@ -256,21 +258,49 @@ object BookController {
             .onFailure { it.printOnDebug() }
             .getOrNull()?.let { bookProgress ->
                 appDb.bookDao.getBook(bookProgress.name, bookProgress.author)?.let { book ->
-                    book.durChapterIndex = bookProgress.durChapterIndex
-                    book.durChapterPos = bookProgress.durChapterPos
-                    book.durChapterTitle = bookProgress.durChapterTitle
-                    book.durChapterTime = bookProgress.durChapterTime
-                    AppWebDav.uploadBookProgress(bookProgress) {
-                        book.syncTime = System.currentTimeMillis()
-                    }
-                    appDb.bookDao.update(book)
-                    ReadBook.book?.let {
-                        if (it.name == bookProgress.name &&
-                            it.author == bookProgress.author
-                        ) {
-                            ReadBook.webBookProgress = bookProgress
+                    when (BookProgressSync.decide(BookProgress(book), bookProgress)) {
+                        BookProgressSyncDecision.KEEP_LOCAL -> {
+                            AppWebDav.uploadBookProgress(BookProgress(book)) {
+                                book.syncTime = System.currentTimeMillis()
+                            }
+                        }
+
+                        BookProgressSyncDecision.USE_REMOTE -> {
+                            book.durChapterIndex = bookProgress.durChapterIndex
+                            book.durChapterPos = bookProgress.durChapterPos
+                            book.durChapterTitle = bookProgress.durChapterTitle
+                            book.durChapterTime = bookProgress.durChapterTime
+                            AppWebDav.uploadBookProgress(bookProgress) {
+                                book.syncTime = System.currentTimeMillis()
+                            }
+                            ReadBook.book?.let {
+                                if (it.name == bookProgress.name &&
+                                    it.author == bookProgress.author
+                                ) {
+                                    ReadBook.webBookProgress = bookProgress
+                                }
+                            }
+                        }
+
+                        BookProgressSyncDecision.ALREADY_SYNCED -> {
+                            when {
+                                bookProgress.durChapterTime > book.durChapterTime -> {
+                                    book.durChapterTime = bookProgress.durChapterTime
+                                    book.durChapterTitle = bookProgress.durChapterTitle
+                                    AppWebDav.uploadBookProgress(bookProgress) {
+                                        book.syncTime = System.currentTimeMillis()
+                                    }
+                                }
+
+                                bookProgress.durChapterTime < book.durChapterTime -> {
+                                    AppWebDav.uploadBookProgress(BookProgress(book)) {
+                                        book.syncTime = System.currentTimeMillis()
+                                    }
+                                }
+                            }
                         }
                     }
+                    appDb.bookDao.update(book)
                     return returnData.setData("")
                 }
             }

@@ -592,6 +592,12 @@ class ReadView(context: Context, attrs: AttributeSet) :
         curPage.setProgress(pageFactory.curPage)
     }
 
+    fun upAiPurifyStatus() {
+        curPage.upAiPurifyStatus()
+        prevPage.upAiPurifyStatus()
+        nextPage.upAiPurifyStatus()
+    }
+
     /**
      * 更新滑动距离
      */

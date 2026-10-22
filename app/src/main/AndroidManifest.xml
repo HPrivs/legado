@@ -247,6 +247,16 @@
             android:name=".ui.replace.ReplaceRuleActivity"
             android:launchMode="singleTop"
             android:screenOrientation="behind" />
+        <!-- AI 功能 -->
+        <activity
+            android:name=".ui.ai.AiFeatureActivity"
+            android:launchMode="singleTop"
+            android:screenOrientation="behind" />
+        <activity
+            android:name=".ui.ai.purify.NovelPurificationTestActivity"
+            android:launchMode="singleTop"
+            android:screenOrientation="behind"
+            android:windowSoftInputMode="adjustResize|stateHidden" />
         <!-- 书籍管理 -->
         <activity
             android:name=".ui.book.manage.BookshelfManageActivity"

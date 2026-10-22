@@ -200,10 +200,11 @@ data class Book(
     }
 
     fun setUseReplaceRule(useReplaceRule: Boolean) {
-        config.useReplaceRule = useReplaceRule
+        config.useReplaceRule = useReplaceRule && !getUseAiPurify()
     }
 
     fun getUseReplaceRule(): Boolean {
+        if (getUseAiPurify()) return false
         val useReplaceRule = config.useReplaceRule
         if (useReplaceRule != null) {
             return useReplaceRule
@@ -213,6 +214,17 @@ data class Book(
             return false
         }
         return AppConfig.replaceEnableDefault
+    }
+
+    fun setUseAiPurify(useAiPurify: Boolean) {
+        config.useAiPurify = useAiPurify
+        if (useAiPurify) {
+            config.useReplaceRule = false
+        }
+    }
+
+    fun getUseAiPurify(): Boolean {
+        return config.useAiPurify
     }
 
     fun setReSegment(reSegment: Boolean) {
@@ -456,6 +468,7 @@ data class Book(
         var reSegment: Boolean = false,
         var imageStyle: String? = null,
         var useReplaceRule: Boolean? = null,// 正文使用净化替换规则
+        var useAiPurify: Boolean = false,// 正文使用 AI 净化
         var delTag: Long = 0L,//去除标签
         var ttsEngine: String? = null,
         var splitLongChapter: Boolean = true,

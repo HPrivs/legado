@@ -5,6 +5,8 @@ import io.legado.app.data.appDb
 import io.legado.app.data.entities.Book
 import io.legado.app.data.entities.BookChapter
 import io.legado.app.data.entities.BookProgress
+import io.legado.app.data.entities.BookProgressSync
+import io.legado.app.data.entities.BookProgressSyncDecision
 import io.legado.app.data.entities.BookSource
 import io.legado.app.data.entities.ReadRecord
 import io.legado.app.help.AppWebDav
@@ -325,7 +327,7 @@ object ReadManga : CoroutineScope by MainScope() {
         preDownload()
     }
 
-    fun saveRead(pageChanged: Boolean = false) {
+    fun saveRead(pageChanged: Boolean = false, onSaved: (() -> Unit)? = null) {
         executor.execute {
             kotlin.runCatching {
                 val book = book ?: return@execute
@@ -347,6 +349,7 @@ object ReadManga : CoroutineScope by MainScope() {
             }.onFailure {
                 AppLog.put("保存漫画阅读进度信息出错\n$it", it)
             }
+            onSaved?.invoke()
         }
     }
 
@@ -499,8 +502,7 @@ object ReadManga : CoroutineScope by MainScope() {
     }
 
     /**
-     * 同步阅读进度
-     * 如果当前进度快于服务器进度或者没有进度进行上传，如果慢与服务器进度则执行传入动作
+     * 同步阅读进度，以最后阅读时间判断本地和云端哪个更新。
      */
     fun syncProgress(
         newProgressAction: ((progress: BookProgress) -> Unit)? = null,
@@ -514,22 +516,34 @@ object ReadManga : CoroutineScope by MainScope() {
         }.onError {
             AppLog.put("拉取阅读进度失败", it)
         }.onSuccess { progress ->
-            if (progress == null || progress.durChapterIndex < book.durChapterIndex ||
-                (progress.durChapterIndex == book.durChapterIndex
-                        && progress.durChapterPos < book.durChapterPos)
-            ) {
-                // 服务器没有进度或者进度比服务器快，上传现有进度
-                Coroutine.async {
-                    AppWebDav.uploadBookProgress(BookProgress(book), uploadSuccessAction)
+            when (BookProgressSync.decide(BookProgress(book), progress)) {
+                BookProgressSyncDecision.KEEP_LOCAL -> Coroutine.async {
+                    AppWebDav.uploadBookProgress(book, onSuccess = uploadSuccessAction)
                     book.update()
                 }
-            } else if (progress.durChapterIndex > book.durChapterIndex ||
-                progress.durChapterPos > book.durChapterPos
-            ) {
-                // 进度比服务器慢，执行传入动作
-                newProgressAction?.invoke(progress)
-            } else {
-                syncSuccessAction?.invoke()
+
+                BookProgressSyncDecision.USE_REMOTE -> {
+                    if (progress != null) newProgressAction?.invoke(progress)
+                }
+                BookProgressSyncDecision.ALREADY_SYNCED -> {
+                    progress?.let { matchingProgress ->
+                        Coroutine.async {
+                            when {
+                                matchingProgress.durChapterTime > book.durChapterTime -> {
+                                    book.durChapterTime = matchingProgress.durChapterTime
+                                    book.durChapterTitle = matchingProgress.durChapterTitle
+                                    book.update()
+                                }
+
+                                matchingProgress.durChapterTime < book.durChapterTime -> {
+                                    AppWebDav.uploadBookProgress(book)
+                                    book.update()
+                                }
+                            }
+                        }
+                    }
+                    syncSuccessAction?.invoke()
+                }
             }
         }
     }

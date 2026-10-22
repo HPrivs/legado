@@ -15,6 +15,7 @@ import android.view.animation.Animation
 import android.widget.FrameLayout
 import android.widget.SeekBar
 import androidx.appcompat.widget.PopupMenu
+import androidx.appcompat.widget.TooltipCompat
 import androidx.core.view.isGone
 import androidx.core.view.isVisible
 import io.legado.app.R
@@ -367,6 +368,7 @@ class ReadMenu @JvmOverloads constructor(
 
     fun runMenuIn(anim: Boolean = !AppConfig.isEInkMode) {
         callBack.onMenuShow()
+        upPurifyAction()
         this.visible()
         binding.titleBar.visible()
         binding.bottomMenu.visible()
@@ -554,8 +556,14 @@ class ReadMenu @JvmOverloads constructor(
             }
         }
 
-        //替换
-        fabReplaceRule.setOnClickListener { callBack.openReplaceRule() }
+        //替换净化；启用 AI 净化时改为当前章重新净化
+        fabReplaceRule.setOnClickListener {
+            if (ReadBook.book?.getUseAiPurify() == true) {
+                runMenuOut { callBack.repurifyCurrentChapter() }
+            } else {
+                callBack.openReplaceRule()
+            }
+        }
 
         //夜间模式
         fabNightTheme.setOnClickListener {
@@ -625,6 +633,20 @@ class ReadMenu @JvmOverloads constructor(
             binding.tvChapterName.gone()
             binding.tvChapterUrl.gone()
         }
+        upPurifyAction()
+    }
+
+    fun upPurifyAction() = binding.run {
+        val useAiPurify = ReadBook.book?.getUseAiPurify() == true
+        val description = context.getString(
+            if (useAiPurify) R.string.ai_reader_repurify else R.string.replace_rule_title
+        )
+        fabReplaceRule.setImageResource(
+            if (useAiPurify) R.drawable.ic_ai else R.drawable.ic_find_replace
+        )
+        fabReplaceRule.contentDescription = description
+        TooltipCompat.setTooltipText(fabReplaceRule, description)
+        fabReplaceRule.isEnabled = true
     }
 
     fun upSeekBar() {
@@ -677,6 +699,8 @@ class ReadMenu @JvmOverloads constructor(
     interface CallBack {
         fun autoPage()
         fun openReplaceRule()
+        fun repurifyCurrentChapter()
+        fun isAiPurifying(): Boolean
         fun openChapterList()
         fun openSearchActivity(searchWord: String?)
         fun openSourceEditActivity()

@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string-array name="ai_provider_entries">
+        <item>DeepSeek</item>
+        <item>Xiaomi MiMo</item>
+        <item>Alibaba Cloud Qwen</item>
+    </string-array>
+    <string-array name="ai_provider_values">
+        <item>deepseek</item>
+        <item>mimo</item>
+        <item>qwen</item>
+    </string-array>
+    <string-array name="ai_model_entries">
+        <item>DeepSeek V4 Pro</item>
+        <item>DeepSeek V4 Flash</item>
+    </string-array>
+    <string-array name="ai_model_values">
+        <item>deepseek-v4-pro</item>
+        <item>deepseek-v4-flash</item>
+    </string-array>
+    <string-array name="ai_mimo_model_entries">
+        <item>MiMo V2.5 Pro</item>
+        <item>MiMo V2.5</item>
+    </string-array>
+    <string-array name="ai_mimo_model_values">
+        <item>mimo-v2.5-pro</item>
+        <item>mimo-v2.5</item>
+    </string-array>
+    <string-array name="ai_qwen_model_entries">
+        <item>Qwen 3.8 Max</item>
+        <item>Qwen 3.8 Flash</item>
+        <item>Qwen 3.8 2.4T A95B</item>
+        <item>Qwen 3.8 27B</item>
+    </string-array>
+    <string-array name="ai_qwen_model_values">
+        <item>qwen3.8-max</item>
+        <item>qwen3.8-flash</item>
+        <item>qwen3.8-2.4t-a95b</item>
+        <item>qwen3.8-27b</item>
+    </string-array>
+    <string-array name="ai_reasoning_effort_entries">
+        <item>@string/ai_reasoning_effort_low</item>
+        <item>@string/ai_reasoning_effort_high</item>
+        <item>@string/ai_reasoning_effort_max</item>
+    </string-array>
+    <string-array name="ai_reasoning_effort_values">
+        <item>low</item>
+        <item>high</item>
+        <item>max</item>
+    </string-array>
+</resources>

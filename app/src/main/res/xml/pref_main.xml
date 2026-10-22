@@ -26,6 +26,13 @@
         app:iconSpaceReserved="false" />
 
     <io.legado.app.lib.prefs.Preference
+        android:icon="@drawable/ic_ai"
+        android:key="aiManage"
+        android:summary="@string/ai_feature_desc"
+        android:title="@string/ai_feature"
+        app:iconSpaceReserved="false" />
+
+    <io.legado.app.lib.prefs.Preference
         android:icon="@drawable/ic_translate"
         android:key="dictRuleManage"
         android:summary="@string/config_dict_rule"

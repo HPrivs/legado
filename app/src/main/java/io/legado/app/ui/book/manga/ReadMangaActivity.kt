@@ -363,12 +363,13 @@ class ReadMangaActivity : VMBaseActivity<ActivityMangaBinding, ReadMangaViewMode
     override fun onPause() {
         super.onPause()
         if (ReadManga.inBookshelf) {
-            ReadManga.saveRead()
-            if (!BuildConfig.DEBUG) {
-                if (AppConfig.syncBookProgressPlus) {
-                    ReadManga.syncProgress()
-                } else {
-                    ReadManga.uploadProgress()
+            ReadManga.saveRead {
+                if (!BuildConfig.DEBUG) {
+                    if (AppConfig.syncBookProgressPlus) {
+                        ReadManga.syncProgress()
+                    } else {
+                        ReadManga.uploadProgress()
+                    }
                 }
             }
         }

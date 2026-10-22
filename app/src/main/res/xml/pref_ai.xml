@@ -1,0 +1,149 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.preference.PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+
+    <io.legado.app.lib.prefs.PreferenceCategory
+        android:title="@string/ai_api_settings"
+        app:allowDividerAbove="false"
+        app:allowDividerBelow="false"
+        app:iconSpaceReserved="false"
+        app:layout="@layout/view_preference_category">
+
+        <io.legado.app.lib.prefs.NameListPreference
+            android:defaultValue="deepseek"
+            android:entries="@array/ai_provider_entries"
+            android:entryValues="@array/ai_provider_values"
+            android:key="aiProvider"
+            android:title="@string/ai_provider"
+            app:iconSpaceReserved="false" />
+
+        <io.legado.app.lib.prefs.EditTextPreference
+            android:defaultValue="https://api.deepseek.com"
+            android:key="aiApiBaseUrl"
+            android:summary="@string/ai_api_base_url_desc"
+            android:title="@string/ai_api_base_url"
+            app:iconSpaceReserved="false" />
+
+        <io.legado.app.lib.prefs.EditTextPreference
+            android:key="aiApiKey"
+            android:summary="@string/ai_api_key_desc"
+            android:title="@string/ai_api_key"
+            app:iconSpaceReserved="false" />
+
+        <io.legado.app.lib.prefs.NameListPreference
+            android:defaultValue="deepseek-v4-pro"
+            android:entries="@array/ai_model_entries"
+            android:entryValues="@array/ai_model_values"
+            android:key="aiModel"
+            android:title="@string/ai_model"
+            app:iconSpaceReserved="false" />
+
+        <io.legado.app.lib.prefs.EditTextPreference
+            android:defaultValue="https://api.xiaomimimo.com/v1"
+            android:key="aiMimoApiBaseUrl"
+            android:summary="@string/ai_api_base_url_desc"
+            android:title="@string/ai_api_base_url"
+            app:iconSpaceReserved="false" />
+
+        <io.legado.app.lib.prefs.EditTextPreference
+            android:key="aiMimoApiKey"
+            android:summary="@string/ai_api_key_desc"
+            android:title="@string/ai_api_key"
+            app:iconSpaceReserved="false" />
+
+        <io.legado.app.lib.prefs.NameListPreference
+            android:defaultValue="mimo-v2.5-pro"
+            android:entries="@array/ai_mimo_model_entries"
+            android:entryValues="@array/ai_mimo_model_values"
+            android:key="aiMimoModel"
+            android:title="@string/ai_model"
+            app:iconSpaceReserved="false" />
+
+        <io.legado.app.lib.prefs.EditTextPreference
+            android:defaultValue="https://dashscope.aliyuncs.com/compatible-mode/v1"
+            android:key="aiQwenApiBaseUrl"
+            android:summary="@string/ai_api_base_url_desc"
+            android:title="@string/ai_api_base_url"
+            app:iconSpaceReserved="false" />
+
+        <io.legado.app.lib.prefs.EditTextPreference
+            android:key="aiQwenApiKey"
+            android:summary="@string/ai_api_key_desc"
+            android:title="@string/ai_api_key"
+            app:iconSpaceReserved="false" />
+
+        <io.legado.app.lib.prefs.NameListPreference
+            android:defaultValue="qwen3.8-max"
+            android:entries="@array/ai_qwen_model_entries"
+            android:entryValues="@array/ai_qwen_model_values"
+            android:key="aiQwenModel"
+            android:title="@string/ai_model"
+            app:iconSpaceReserved="false" />
+
+        <io.legado.app.lib.prefs.SwitchPreference
+            android:defaultValue="true"
+            android:key="aiThinking"
+            android:summary="@string/ai_thinking_desc"
+            android:title="@string/ai_thinking"
+            app:iconSpaceReserved="false" />
+
+        <io.legado.app.lib.prefs.NameListPreference
+            android:defaultValue="low"
+            android:entries="@array/ai_reasoning_effort_entries"
+            android:entryValues="@array/ai_reasoning_effort_values"
+            android:key="aiReasoningEffort"
+            android:title="@string/ai_reasoning_effort"
+            app:iconSpaceReserved="false" />
+
+        <io.legado.app.lib.prefs.Preference
+            android:icon="@drawable/ic_network_check"
+            android:key="aiTestConnection"
+            android:summary="@string/ai_test_connection_desc"
+            android:title="@string/ai_test_connection"
+            app:iconSpaceReserved="false" />
+
+        <io.legado.app.lib.prefs.Preference
+            android:icon="@drawable/ic_ai"
+            android:key="aiTestChat"
+            android:summary="@string/ai_chat_test_desc"
+            android:title="@string/ai_chat_test"
+            app:iconSpaceReserved="false" />
+
+    </io.legado.app.lib.prefs.PreferenceCategory>
+
+    <io.legado.app.lib.prefs.PreferenceCategory
+        android:title="@string/ai_purification_prompt_settings"
+        app:allowDividerAbove="false"
+        app:allowDividerBelow="false"
+        app:iconSpaceReserved="false"
+        app:layout="@layout/view_preference_category">
+
+        <io.legado.app.lib.prefs.Preference
+            android:icon="@drawable/ic_ai"
+            android:key="aiNovelPurificationTest"
+            android:summary="@string/ai_text_purification_test_desc"
+            android:title="@string/ai_text_purification_test"
+            app:iconSpaceReserved="false" />
+
+        <io.legado.app.lib.prefs.Preference
+            android:key="aiNovelSystemPrompt"
+            android:summary="@string/ai_system_prompt_default_desc"
+            android:title="@string/ai_system_prompt"
+            app:iconSpaceReserved="false" />
+
+        <io.legado.app.lib.prefs.EditTextPreference
+            android:key="aiNovelUserPrompt"
+            android:summary="@string/ai_user_prompt_desc"
+            android:title="@string/ai_user_prompt"
+            app:iconSpaceReserved="false" />
+
+        <io.legado.app.lib.prefs.Preference
+            android:icon="@drawable/ic_ai"
+            android:key="aiTestPurificationPrompt"
+            android:summary="@string/ai_purification_test_desc"
+            android:title="@string/ai_purification_test"
+            app:iconSpaceReserved="false" />
+
+    </io.legado.app.lib.prefs.PreferenceCategory>
+
+</androidx.preference.PreferenceScreen>
